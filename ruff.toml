@@ -1,5 +1,7 @@
 line-length = 100
-target-version = "py312"
+target-version = "py313"
+# Lets isort recognise each Python app's package as first-party
+src = ["apps/*/src"]
 extend-exclude = [".venv", "node_modules", "**/migrations"]
 
 [lint]

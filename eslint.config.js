@@ -17,6 +17,7 @@ export default tseslint.config(
       '**/target/**',
       '**/coverage/**',
       '**/.venv/**',
+      '**/next-env.d.ts',
       'apps/backend/**',
       'apps/ai-service/**',
       'infra/**',

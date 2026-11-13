@@ -16,7 +16,10 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "commit": "cz",
-    "prepare": "husky"
+    "prepare": "husky",
+    "dev:web": "npm run dev -w web",
+    "build:web": "npm run build -w web",
+    "typecheck": "npm run typecheck -w web"
   },
   "config": {
     "commitizen": {
