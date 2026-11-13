@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hireflow Voice Tagging</title>
+    <style>
+      :root {
+        --bg: #fafaf9;
+        --card: #ffffff;
+        --text: #1c1917;
+        --muted: #78716c;
+        --border: #e7e5e4;
+        --gold: #b8892b;
+        --gold-light: #e9c46a;
+        --gold-dark: #8a6414;
+        --accent: var(--gold);
+        --interviewer: #c9972f;
+        --candidate: #5b4423;
+        --danger: #b42318;
+        --warn-bg: #fdf0c8;
+        --warn-text: #7a5200;
+        --chip: #f5f5f4;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          15px/1.55 Inter,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+      }
+      main {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 2rem 1rem 4rem;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+      }
+      header {
+        padding-bottom: 1rem;
+        border-bottom: 2px solid;
+        border-image: linear-gradient(90deg, var(--gold-light), var(--gold), transparent) 1;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.35rem;
+        letter-spacing: -0.01em;
+      }
+      .subtitle {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 1rem;
+        box-shadow:
+          0 1px 2px rgb(28 25 23 / 5%),
+          0 8px 24px rgb(28 25 23 / 4%);
+        margin-bottom: 1rem;
+      }
+
+      /* status pill */
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.25rem 0.75rem;
+        border-radius: 999px;
+        background: var(--chip);
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .pill::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+      .pill.recording::before {
+        background: var(--danger);
+        animation: pulse 1.2s infinite;
+      }
+      .pill.working::before {
+        background: var(--accent);
+        animation: pulse 1.2s infinite;
+      }
+      .pill.done::before {
+        background: var(--candidate);
+      }
+      .pill.error::before {
+        background: var(--danger);
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.3;
+        }
+      }
+
+      /* voice stage */
+      .stage {
+        position: relative;
+        border-radius: 12px;
+        overflow: hidden;
+        background: linear-gradient(180deg, #ffffff 0%, #f5f5f4 100%);
+        border: 1px solid var(--border);
+      }
+      #meter {
+        display: block;
+        width: 100%;
+        height: 150px;
+      }
+      .hud {
+        position: absolute;
+        inset: 0 0 auto 0;
+        display: flex;
+        justify-content: space-between;
+        padding: 0.6rem 0.9rem;
+        font-size: 12px;
+        color: var(--muted);
+        pointer-events: none;
+      }
+      #timer {
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+        color: var(--text);
+        letter-spacing: 0.04em;
+      }
+      #device {
+        max-width: 55%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-top: 1rem;
+      }
+      #mic {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.6rem;
+        font: inherit;
+        font-weight: 600;
+        padding: 0.7rem 1.4rem;
+        border-radius: 999px;
+        border: 0;
+        color: #2b1d02;
+        background: linear-gradient(135deg, var(--gold-light), var(--gold));
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgb(184 137 43 / 40%);
+        transition: transform 0.1s;
+      }
+      #mic:hover {
+        transform: translateY(-1px);
+      }
+      #mic .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #2b1d02;
+      }
+      #mic.recording {
+        color: #fff;
+        background: var(--danger);
+        box-shadow: 0 4px 14px rgb(180 35 24 / 40%);
+      }
+      #mic.recording .dot {
+        background: #fff;
+        border-radius: 3px;
+      }
+      .segmented {
+        display: inline-flex;
+        padding: 3px;
+        border-radius: 999px;
+        background: var(--chip);
+      }
+      .segmented label {
+        cursor: pointer;
+      }
+      .segmented input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .segmented span {
+        display: block;
+        padding: 0.4rem 1rem;
+        border-radius: 999px;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      .segmented input:checked + span {
+        color: #fff;
+      }
+      .segmented input[value='interviewer']:checked + span {
+        color: #2b1d02;
+      }
+      .segmented input[value='interviewer']:checked + span {
+        background: var(--interviewer);
+      }
+      .segmented input[value='candidate']:checked + span {
+        background: var(--candidate);
+      }
+      .segmented input:focus-visible + span {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      #status {
+        margin: 0.75rem 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      /* results */
+      .chips {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.75rem;
+      }
+      .chip {
+        padding: 0.2rem 0.7rem;
+        border-radius: 999px;
+        background: var(--chip);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .chip b {
+        color: var(--text);
+      }
+      .turn {
+        border-left: 4px solid var(--muted);
+        padding: 0.1rem 0 0.1rem 0.9rem;
+        margin: 1rem 0;
+      }
+      .turn.interviewer {
+        border-color: var(--interviewer);
+      }
+      .turn.candidate {
+        border-color: var(--candidate);
+      }
+      .turn-title {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .sentence {
+        margin: 0.6rem 0;
+      }
+      .sentence-text {
+        margin: 0.2rem 0;
+      }
+      .meta {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .tag {
+        display: inline-block;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 1px 9px;
+        border-radius: 999px;
+        margin-right: 6px;
+        background: var(--chip);
+        color: var(--muted);
+      }
+      .tag.question {
+        background: #fbe9b7;
+        color: #7a5200;
+      }
+      .tag.answer {
+        background: #efe6d6;
+        color: #3d2b10;
+      }
+      .tag.follow_up {
+        background: #f6dcc2;
+        color: #8a3b00;
+      }
+      .tag.review {
+        background: var(--warn-bg);
+        color: var(--warn-text);
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.5rem;
+      }
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 13px;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .ghost {
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 0.3rem 0.8rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text);
+        cursor: pointer;
+      }
+      .ghost:hover {
+        background: var(--chip);
+      }
+      .actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+      }
+      kbd {
+        font:
+          11px ui-monospace,
+          monospace;
+        padding: 1px 6px;
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        border-radius: 5px;
+        background: var(--card);
+      }
+      .hint {
+        margin: 0.5rem 0 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .pill::before {
+          animation: none !important;
+        }
+        #mic {
+          transition: none;
+        }
+      }
+      .empty {
+        color: var(--muted);
+        text-align: center;
+        padding: 1.5rem 0;
+      }
+      details summary {
+        cursor: pointer;
+        font-weight: 600;
+      }
+      pre {
+        overflow: auto;
+        max-height: 420px;
+        font-size: 12px;
+        background: var(--bg);
+        padding: 0.75rem;
+        border-radius: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Voice tagging</h1>
+          <div class="subtitle">Speak a two-person interview; sentences are tagged live.</div>
+        </div>
+        <span id="pill" class="pill">Idle</span>
+      </header>
+
+      <section class="card">
+        <div class="stage">
+          <canvas id="meter"></canvas>
+          <div class="hud">
+            <span id="timer">00:00</span>
+            <span id="device"></span>
+          </div>
+        </div>
+        <div class="controls">
+          <button id="mic" type="button">
+            <span class="dot"></span><span id="micLabel">Start recording</span>
+          </button>
+          <div class="segmented" role="radiogroup" aria-label="Who is speaking">
+            <label
+              ><input type="radio" name="speaker" value="interviewer" checked /><span
+                >Interviewer</span
+              ></label
+            >
+            <label
+              ><input type="radio" name="speaker" value="candidate" /><span>Candidate</span></label
+            >
+          </div>
+        </div>
+        <p id="status" role="status" aria-live="polite">
+          Press Start, then switch speaker as the conversation changes.
+        </p>
+        <p class="hint">
+          <kbd>Space</kbd> start / stop · <kbd>1</kbd> Interviewer · <kbd>2</kbd> Candidate
+        </p>
+      </section>
+
+      <section class="card" id="resultCard">
+        <div class="toolbar">
+          <div class="chips" id="summary"></div>
+          <label class="toggle"><input type="checkbox" id="reviewOnly" /> Needs review only</label>
+        </div>
+        <div id="result">
+          <div class="empty">Tagged sentences will appear here as you speak.</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <details id="rawBox" open>
+          <summary>Raw JSON</summary>
+          <pre id="raw">{}</pre>
+          <div class="actions">
+            <button class="ghost" id="copyJson" type="button">Copy JSON</button>
+            <button class="ghost" id="downloadJson" type="button">Download JSON</button>
+          </div>
+        </details>
+      </section>
+    </main>
+
+    <script>
+      const mic = document.getElementById('mic');
+      const micLabel = document.getElementById('micLabel');
+      const statusEl = document.getElementById('status');
+      const pill = document.getElementById('pill');
+      const timerEl = document.getElementById('timer');
+      const deviceEl = document.getElementById('device');
+      // Audio is cut into slices this long and processed while the person keeps talking.
+      const SLICE_MS = 8000;
+      let stream, recorder, sessionId, startedAt, log, sliceTimer, device, clock;
+      let recording = false;
+      let queue = Promise.resolve(); // slices are sent one at a time, in order
+      let pending = 0;
+      let lastError = null;
+      let lastData = null;
+
+      const currentSpeaker = () => document.querySelector('input[name=speaker]:checked').value;
+      const elapsed = () => (performance.now() - startedAt) / 1000;
+
+      function setPill(state, text) {
+        pill.className = 'pill ' + state;
+        pill.textContent = text;
+      }
+
+      function tickClock() {
+        const total = Math.floor(elapsed());
+        const mm = String(Math.floor(total / 60)).padStart(2, '0');
+        const ss = String(total % 60).padStart(2, '0');
+        timerEl.textContent = `${mm}:${ss}`;
+      }
+
+      // Log every speaker switch with its time offset from the start of the recording.
+      document
+        .querySelectorAll('input[name=speaker]')
+        .forEach((radio) =>
+          radio.addEventListener(
+            'change',
+            () => recording && log.push({ speaker: currentSpeaker(), at: elapsed() }),
+          ),
+        );
+
+      // Live voice graph: mirrored, rounded bars over the speech range (about 90 Hz to 6 kHz).
+      const canvas = document.getElementById('meter');
+      const ctx2d = canvas.getContext('2d');
+      const BARS = 84;
+      const COLORS = {
+        interviewer: ['#e9c46a66', '#c9972f'],
+        candidate: ['#6b5a3d66', '#3b2a12'],
+      };
+      let audioCtx, frame;
+      let peak = 0; // loudest level heard this recording (0-255), to detect a silent mic
+      let levels = new Array(BARS).fill(0);
+
+      // Match the canvas to its on-screen size so bars stay sharp on any screen.
+      function fitCanvas() {
+        const ratio = window.devicePixelRatio || 1;
+        canvas.width = canvas.clientWidth * ratio;
+        canvas.height = canvas.clientHeight * ratio;
+        ctx2d.setTransform(ratio, 0, 0, ratio, 0, 0);
+      }
+      window.addEventListener('resize', () => {
+        fitCanvas();
+        drawBars();
+      });
+
+      function drawBars() {
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        ctx2d.clearRect(0, 0, w, h);
+
+        // Faint centre line, like a studio level meter.
+        ctx2d.fillStyle = 'rgb(120 113 108 / 25%)';
+        ctx2d.fillRect(0, h / 2, w, 1);
+
+        const [edge, core] = COLORS[currentSpeaker()];
+        const gradient = ctx2d.createLinearGradient(0, 0, 0, h);
+        gradient.addColorStop(0, edge);
+        gradient.addColorStop(0.5, core);
+        gradient.addColorStop(1, edge);
+        ctx2d.fillStyle = gradient;
+        const slot = w / BARS;
+        const barWidth = Math.max(2, slot * 0.45);
+        levels.forEach((level, i) => {
+          const barHeight = Math.max(4, level * h * 0.8);
+          const x = i * slot + (slot - barWidth) / 2;
+          const y = (h - barHeight) / 2;
+          ctx2d.beginPath();
+          ctx2d.roundRect(x, y, barWidth, barHeight, barWidth / 2);
+          ctx2d.fill();
+        });
+      }
+
+      function drawMeter(stream) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        // Browsers may start the context suspended; resume so the graph actually moves.
+        audioCtx.resume();
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 1024;
+        analyser.smoothingTimeConstant = 0.75;
+        audioCtx.createMediaStreamSource(stream).connect(analyser);
+        const bins = new Uint8Array(analyser.frequencyBinCount);
+        const hzPerBin = audioCtx.sampleRate / analyser.fftSize;
+        const first = 90 / hzPerBin;
+        const ratio = 6000 / 90;
+        const paint = () => {
+          analyser.getByteFrequencyData(bins);
+          peak = Math.max(peak, ...bins);
+          levels = levels.map((previous, i) => {
+            // Log-spaced bands, so low voice tones are not squeezed into a few bars.
+            const from = Math.floor(first * ratio ** (i / BARS));
+            const to = Math.max(from + 1, Math.floor(first * ratio ** ((i + 1) / BARS)));
+            const band = bins.slice(from, to);
+            const average = band.reduce((sum, v) => sum + v, 0) / band.length / 255;
+            const target = Math.min(1, average * 1.5);
+            // Rise quickly, fall slowly: reads as a smooth, natural motion.
+            return target > previous ? target : previous * 0.85 + target * 0.15;
+          });
+          drawBars();
+          frame = requestAnimationFrame(paint);
+        };
+        paint();
+      }
+
+      function idleMeter() {
+        levels = new Array(BARS).fill(0);
+        drawBars();
+        ctx2d.fillStyle = '#78716c';
+        ctx2d.font = '13px system-ui, sans-serif';
+        ctx2d.textAlign = 'center';
+        ctx2d.fillText(
+          'Microphone idle: press Start recording',
+          canvas.clientWidth / 2,
+          canvas.clientHeight / 2 - 28,
+        );
+        ctx2d.textAlign = 'start';
+      }
+      fitCanvas();
+      idleMeter();
+
+      function stopMeter() {
+        cancelAnimationFrame(frame);
+        audioCtx?.close();
+        idleMeter();
+      }
+
+      mic.addEventListener('click', () => (recording ? stopRecording() : startRecording()));
+
+      function showProgress() {
+        const work = pending ? ` ${pending} slice(s) processing…` : '';
+        if (recording) {
+          setPill('recording', pending ? 'Recording · processing' : 'Recording');
+          statusEl.textContent = `Results appear live as you speak.${work}`;
+        } else {
+          setPill('working', 'Finishing');
+          statusEl.textContent = `Finishing up.${work}`;
+        }
+      }
+
+      async function startRecording() {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true },
+          });
+          const res = await fetch('/sessions', { method: 'POST' });
+          if (!res.ok) throw new Error('could not start a session');
+          sessionId = (await res.json()).id;
+        } catch (err) {
+          stream?.getTracks().forEach((t) => t.stop());
+          setPill('error', 'Cannot start');
+          statusEl.textContent = 'Cannot start: ' + err.message;
+          return;
+        }
+        recording = true;
+        peak = 0;
+        pending = 0;
+        lastError = null;
+        lastData = null;
+        queue = Promise.resolve();
+        startedAt = performance.now();
+        log = [{ speaker: currentSpeaker(), at: 0 }];
+        device = stream.getAudioTracks()[0]?.label || 'unknown device';
+        deviceEl.textContent = device;
+        document.getElementById('summary').replaceChildren();
+        document
+          .getElementById('result')
+          .replaceChildren(
+            el('div', 'empty', 'Listening… the first sentences appear after a few seconds.'),
+          );
+        try {
+          drawMeter(stream);
+        } catch (err) {
+          // The graph is cosmetic; never let it break recording.
+          console.error('meter failed', err);
+        }
+        tickClock();
+        clock = setInterval(tickClock, 500);
+        micLabel.textContent = 'Stop';
+        mic.classList.add('recording');
+        startSlice();
+        showProgress();
+      }
+
+      // Each slice is its own complete audio file so the server can decode it alone.
+      function startSlice() {
+        const offset = elapsed();
+        const parts = [];
+        const rec = new MediaRecorder(stream);
+        rec.ondataavailable = (e) => parts.push(e.data);
+        rec.onstop = () => {
+          enqueue(new Blob(parts, { type: rec.mimeType }), offset);
+          if (recording) startSlice();
+          else finish();
+        };
+        rec.start();
+        recorder = rec;
+        sliceTimer = setTimeout(() => rec.stop(), SLICE_MS);
+      }
+
+      function stopRecording() {
+        recording = false;
+        clearTimeout(sliceTimer);
+        clearInterval(clock);
+        recorder.stop();
+      }
+
+      function enqueue(blob, offset) {
+        if (blob.size === 0) return;
+        pending++;
+        showProgress();
+        queue = queue
+          .then(() => sendSlice(blob, offset))
+          .catch((err) => (lastError = err.message))
+          .finally(() => {
+            pending--;
+            showProgress();
+          });
+      }
+
+      async function sendSlice(blob, offset) {
+        const form = new FormData();
+        form.append('audio', blob, 'slice');
+        form.append('offset', offset);
+        form.append('speaker_log', JSON.stringify(log));
+        const res = await fetch(`/sessions/${sessionId}/chunks`, { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        lastData = data;
+        render(data);
+      }
+
+      async function finish() {
+        stream.getTracks().forEach((t) => t.stop());
+        stopMeter();
+        deviceEl.textContent = '';
+        micLabel.textContent = 'Start recording';
+        mic.classList.remove('recording');
+        showProgress();
+        await queue;
+        fetch(`/sessions/${sessionId}`, { method: 'DELETE' });
+        if (peak < 10) {
+          setPill('error', 'No sound');
+          statusEl.textContent =
+            'No sound reached the browser: the selected microphone is silent. Check the input device and that the mic is not muted.';
+        } else if (lastError) {
+          setPill('error', 'Complete with errors');
+          statusEl.textContent = 'Some audio failed: ' + lastError;
+        } else if (!lastData?.turns.length) {
+          setPill('done', 'Complete');
+          statusEl.textContent = 'Sound was captured but no speech was recognised.';
+        } else {
+          setPill('done', 'Complete');
+          statusEl.textContent = 'Complete.';
+        }
+      }
+
+      const reviewOnly = document.getElementById('reviewOnly');
+      reviewOnly.addEventListener('change', () => lastData && render(lastData));
+
+      const rawText = () => JSON.stringify(lastData ?? {}, null, 2);
+      document.getElementById('copyJson').addEventListener('click', async (event) => {
+        try {
+          await navigator.clipboard.writeText(rawText());
+          event.target.textContent = 'Copied';
+        } catch {
+          event.target.textContent = 'Copy failed';
+        }
+        setTimeout(() => (event.target.textContent = 'Copy JSON'), 1500);
+      });
+      document.getElementById('downloadJson').addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(new Blob([rawText()], { type: 'application/json' }));
+        link.download = 'voice-tagging.json';
+        link.click();
+        URL.revokeObjectURL(link.href);
+      });
+
+      // Keyboard shortcuts, ignored while typing or when a control already uses the key.
+      document.addEventListener('keydown', (event) => {
+        if (
+          event.target.closest('input, textarea, button, summary') ||
+          event.metaKey ||
+          event.ctrlKey
+        )
+          return;
+        if (event.code === 'Space') {
+          event.preventDefault();
+          mic.click();
+        } else if (event.key === '1' || event.key === '2') {
+          const value = event.key === '1' ? 'interviewer' : 'candidate';
+          const radio = document.querySelector(`input[name=speaker][value=${value}]`);
+          radio.checked = true;
+          radio.dispatchEvent(new Event('change'));
+        }
+      });
+
+      const el = (tag, cls, text) => {
+        const node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      };
+
+      const chip = (label, value) => {
+        const node = el('span', 'chip', label + ' ');
+        node.append(el('b', '', value));
+        return node;
+      };
+
+      const reviewCount = (data) =>
+        data.turns.flatMap((t) => t.sentences).filter((s) => s.needs_review).length;
+
+      // textContent only: transcripts are untrusted text.
+      function render(data) {
+        document
+          .getElementById('summary')
+          .replaceChildren(
+            chip('Language', `${data.language} (${(data.language_probability * 100).toFixed(0)}%)`),
+            chip('Labelled by', data.labeller),
+            chip('Turns', String(data.turns.length)),
+            chip('Needs review', String(reviewCount(data))),
+          );
+        const result = document.getElementById('result');
+        result.replaceChildren();
+        for (const turn of data.turns) {
+          const box = el('div', 'turn ' + turn.speaker);
+          box.append(el('div', 'turn-title', `${turn.id} · ${turn.speaker}`));
+          for (const s of turn.sentences.filter((x) => !reviewOnly.checked || x.needs_review)) {
+            const row = el('div', 'sentence');
+            const head = el('div');
+            head.append(
+              el('span', 'tag ' + (s.label ?? ''), (s.label ?? 'unlabelled').replace('_', ' ')),
+            );
+            if (s.label_confidence !== null)
+              head.append(el('span', 'meta', `${(s.label_confidence * 100).toFixed(0)}% `));
+            if (s.needs_review)
+              head.append(el('span', 'tag review', 'needs review: ' + s.review_reason));
+            row.append(head);
+            row.append(el('div', 'sentence-text', s.text));
+            row.append(
+              el(
+                'div',
+                'meta',
+                `${s.id} · ${s.start.toFixed(1)}–${s.end.toFixed(1)}s · speech ${(s.transcription_confidence * 100).toFixed(0)}%`,
+              ),
+            );
+            box.append(row);
+          }
+          result.append(box);
+        }
+        if (!result.children.length) {
+          result.append(el('div', 'empty', 'Nothing needs review.'));
+        }
+        document.getElementById('raw').textContent = JSON.stringify(data, null, 2);
+        // Keep the newest sentence in view while the conversation grows.
+        if (recording)
+          result.lastElementChild?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    </script>
+  </body>
+</html>
