@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "editorconfig.editorconfig",
+    "charliermarsh.ruff",
+    "vscjava.vscode-java-pack"
+  ]
+}
