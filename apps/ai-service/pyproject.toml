@@ -5,8 +5,12 @@ description = "HIRE FLOW AI service"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "av<17",
     "fastapi[standard]>=0.162.6",
+    "faster-whisper>=1.2.1",
+    "httpx>=0.28.1",
     "pydantic-settings>=2.16.3",
+    "python-multipart>=0.0.33",
 ]
 
 [build-system]
@@ -19,6 +23,11 @@ testpaths = ["tests"]
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# No type stubs are published for these.
+module = ["faster_whisper", "ctranslate2"]
+ignore_missing_imports = true
 
 [dependency-groups]
 dev = [
