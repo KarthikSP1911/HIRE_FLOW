@@ -22,14 +22,27 @@ hireflow/
 ### Prerequisites
 
 - Node.js 22 (`nvm use`)
-- JDK 21 (backend)
-- Python 3.12+ and [Ruff](https://docs.astral.sh/ruff/) (`pipx install ruff`) for the AI service
+- JDK 21 for the backend (make sure `JAVA_HOME` points to it)
+- [uv](https://docs.astral.sh/uv/) for the AI service (`curl -LsSf https://astral.sh/uv/install.sh | sh`), plus `uv tool install ruff`
+- Docker for local Postgres and Testcontainers
 
 ### Setup
 
 ```bash
-npm install   # installs tooling and sets up git hooks (Husky)
+npm install                                         # JS deps + git hooks (Husky)
+(cd apps/ai-service && uv sync)                     # Python deps
+docker compose -f infra/docker-compose.yml up -d    # Postgres
 ```
+
+### Running the apps
+
+| App          | Path                        | Run                                         | URL                   |
+| ------------ | --------------------------- | ------------------------------------------- | --------------------- |
+| Web          | `apps/web`                  | `npm run dev:web`                           | http://localhost:3000 |
+| Core service | `apps/backend/core-service` | `./mvnw spring-boot:run`                    | http://localhost:8080 |
+| AI service   | `apps/ai-service`           | `uv run fastapi dev src/ai_service/main.py` | http://localhost:8000 |
+
+Each app has a `.env.example` listing its configuration.
 
 ### Scripts
 
