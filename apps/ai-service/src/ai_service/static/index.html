@@ -303,6 +303,44 @@
         background: var(--warn-bg);
         color: var(--warn-text);
       }
+      .thread {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.7rem 0.9rem;
+        margin: 0.7rem 0;
+      }
+      .thread-title {
+        font-weight: 600;
+        margin: 0.4rem 0;
+      }
+      .thread-points {
+        margin: 0.2rem 0 0.5rem 1.1rem;
+        padding: 0;
+        font-size: 13px;
+      }
+      .thread-answer {
+        margin: 0.3rem 0;
+        padding: 0.2rem 0.5rem;
+        border-left: 3px solid var(--border);
+      }
+      .thread-answer.cited {
+        border-left-color: var(--muted);
+        background: var(--chip);
+      }
+      .ratings {
+        margin-top: 0.5rem;
+      }
+      .score {
+        margin-top: 0.6rem;
+        font-size: 28px;
+        font-weight: 700;
+        line-height: 1.1;
+      }
+      .score-max {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--muted);
+      }
       .toolbar {
         display: flex;
         align-items: center;
@@ -428,6 +466,18 @@
         </div>
         <div id="result">
           <div class="empty">Tagged sentences will appear here as you speak.</div>
+        </div>
+      </section>
+
+      <section class="card" id="threadsCard">
+        <div class="toolbar">
+          <b>Questions &amp; answers</b>
+          <span class="meta"
+            >Answers are rated when the next question arrives or recording stops.</span
+          >
+        </div>
+        <div id="threads">
+          <div class="empty">Questions, topics, answers and ratings will appear here.</div>
         </div>
       </section>
 
@@ -652,7 +702,8 @@
         const rec = new MediaRecorder(stream);
         rec.ondataavailable = (e) => parts.push(e.data);
         rec.onstop = () => {
-          enqueue(new Blob(parts, { type: rec.mimeType }), offset);
+          // The slice recorded after stop is the last one, so it closes the final question.
+          enqueue(new Blob(parts, { type: rec.mimeType }), offset, !recording);
           if (recording) startSlice();
           else finish();
         };
@@ -668,12 +719,12 @@
         recorder.stop();
       }
 
-      function enqueue(blob, offset) {
+      function enqueue(blob, offset, final) {
         if (blob.size === 0) return;
         pending++;
         showProgress();
         queue = queue
-          .then(() => sendSlice(blob, offset))
+          .then(() => sendSlice(blob, offset, final))
           .catch((err) => (lastError = err.message))
           .finally(() => {
             pending--;
@@ -681,10 +732,11 @@
           });
       }
 
-      async function sendSlice(blob, offset) {
+      async function sendSlice(blob, offset, final) {
         const form = new FormData();
         form.append('audio', blob, 'slice');
         form.append('offset', offset);
+        form.append('final', final ? 'true' : 'false');
         form.append('speaker_log', JSON.stringify(log));
         const res = await fetch(`/sessions/${sessionId}/chunks`, { method: 'POST', body: form });
         const data = await res.json();
@@ -774,6 +826,109 @@
       const reviewCount = (data) =>
         data.turns.flatMap((t) => t.sentences).filter((s) => s.needs_review).length;
 
+      const RATING_FIELDS = [
+        ['relevance', 'Relevance'],
+        ['correctness', 'Correctness'],
+        ['depth', 'Depth'],
+        ['example_given', 'Example given'],
+      ];
+      const pct = (value) => `${(value * 100).toFixed(0)}%`;
+      const words = (value) => value.replaceAll('_', ' ');
+
+      function renderThread(t, sentences) {
+        const card = el('div', 'thread');
+        const head = el('div');
+        head.append(el('span', 'tag question', t.id));
+        head.append(
+          el(
+            'span',
+            'tag',
+            t.topic
+              ? `topic: ${t.topic}${t.topic_confidence === null ? '' : ' ' + pct(t.topic_confidence)}`
+              : 'no topic',
+          ),
+        );
+        head.append(el('span', 'tag', words(t.status)));
+        if (t.primed)
+          head.append(el('span', 'tag review', 'primed: leading question, not clean evidence'));
+        if (t.rubric?.source === 'generated')
+          head.append(el('span', 'tag review', 'generated rubric'));
+        if (t.needs_review)
+          head.append(el('span', 'tag review', 'needs review: ' + t.review_reason));
+        card.append(head, el('div', 'thread-title', sentences.get(t.question_id)?.text ?? ''));
+
+        if (t.rubric) {
+          const source =
+            t.rubric.source === 'bank'
+              ? `Expected points (question bank ${t.rubric.bank_id})`
+              : 'Expected points (drafted by the model, not from the question bank)';
+          card.append(el('div', 'meta', source));
+          const list = el('ul', 'thread-points');
+          t.rubric.points.forEach((point, index) => {
+            const found = t.rating?.coverage?.find((c) => c.point === index + 1);
+            const item = el('li', '', point);
+            if (found) {
+              const ids = found.evidence.length ? ` (${found.evidence.join(', ')})` : '';
+              item.append(el('span', 'meta', ` — ${words(found.coverage)}${ids}`));
+            }
+            list.append(item);
+          });
+          card.append(list);
+        }
+
+        const evidence = t.rating?.evidence;
+        for (const id of t.answer_ids) {
+          const supports = evidence
+            ? RATING_FIELDS.filter(([key]) => evidence[key].includes(id))
+            : [];
+          const row = el('div', 'thread-answer' + (supports.length ? ' cited' : ''));
+          row.append(el('div', '', sentences.get(id)?.text ?? id));
+          const note = supports.length
+            ? `${id} · supports ${supports.map(([, label]) => label.toLowerCase()).join(', ')}`
+            : id;
+          row.append(el('div', 'meta', note));
+          card.append(row);
+        }
+        for (const [ids, label] of [
+          [t.follow_up_ids, 'Follow-up'],
+          [t.clarification_ids, 'Candidate asked'],
+          [t.self_answer_ids, 'Interviewer answered'],
+        ])
+          for (const id of ids)
+            card.append(el('div', 'meta', `${label}: ${sentences.get(id)?.text ?? id}`));
+
+        if (t.status === 'no_attempt')
+          card.append(el('div', 'meta', 'The candidate did not attempt an answer: not rated.'));
+        else if (!t.closed && t.status === 'answered')
+          card.append(
+            el('div', 'meta', 'Still open: rated when the next question arrives or you stop.'),
+          );
+        if (t.rating) {
+          const score = el('div', 'score', String(t.rating.score));
+          score.append(el('span', 'score-max', ' / 10'));
+          card.append(score);
+          const ratings = el('div', 'chips ratings');
+          for (const [key, label] of RATING_FIELDS)
+            ratings.append(chip(label, words(t.rating[key])));
+          card.append(ratings);
+        }
+        return card;
+      }
+
+      function renderThreads(data) {
+        const box = document.getElementById('threads');
+        const sentences = new Map(data.turns.flatMap((t) => t.sentences).map((s) => [s.id, s]));
+        box.replaceChildren(
+          ...(data.threads ?? [])
+            .filter((t) => !reviewOnly.checked || t.needs_review)
+            .map((t) => renderThread(t, sentences)),
+        );
+        if (!box.children.length)
+          box.append(
+            el('div', 'empty', reviewOnly.checked ? 'Nothing needs review.' : 'No questions yet.'),
+          );
+      }
+
       // textContent only: transcripts are untrusted text.
       function render(data) {
         document
@@ -782,8 +937,10 @@
             chip('Language', `${data.language} (${(data.language_probability * 100).toFixed(0)}%)`),
             chip('Labelled by', data.labeller),
             chip('Turns', String(data.turns.length)),
+            chip('Questions', String((data.threads ?? []).length)),
             chip('Needs review', String(reviewCount(data))),
           );
+        renderThreads(data);
         const result = document.getElementById('result');
         result.replaceChildren();
         for (const turn of data.turns) {
