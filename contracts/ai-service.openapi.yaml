@@ -1,0 +1,216 @@
+openapi: 3.1.0
+info:
+  title: HIRE FLOW ai-service
+  version: 0.1.0
+  description: >
+    Voice-tagging PoC. Audio in; labelled turns, question threads, topics and answer ratings out.
+    Errors are application/problem+json (RFC 9457).
+paths:
+  /process:
+    post:
+      summary: Process one whole recording
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio, speaker_log]
+              properties:
+                audio: { type: string, format: binary }
+                speaker_log:
+                  type: string
+                  description: JSON array of {speaker, at} speaker changes
+      responses:
+        '200':
+          description: Labelled turns and finished question threads
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProcessResponse' }
+        '413': { $ref: '#/components/responses/Problem' }
+        '415': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '502': { $ref: '#/components/responses/Problem' }
+  /sessions:
+    post:
+      summary: Start a live session
+      responses:
+        '201':
+          description: Session created
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { type: string }
+  /sessions/{id}/chunks:
+    post:
+      summary: Add the next audio slice to a live session
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio, speaker_log, offset]
+              properties:
+                audio: { type: string, format: binary }
+                speaker_log: { type: string }
+                offset: { type: number, minimum: 0, description: Seconds from recording start }
+                final:
+                  type: boolean
+                  default: false
+                  description: No audio follows, so the last question's answers are rated now.
+      responses:
+        '200':
+          description: Everything labelled and assessed so far
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProcessResponse' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '413': { $ref: '#/components/responses/Problem' }
+        '415': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '502': { $ref: '#/components/responses/Problem' }
+  /sessions/{id}:
+    delete:
+      summary: End a live session
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Session dropped }
+components:
+  responses:
+    Problem:
+      description: Error
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            properties:
+              type: { type: string }
+              title: { type: string }
+              status: { type: integer }
+              detail: { type: string }
+  schemas:
+    Speaker: { type: string, enum: [interviewer, candidate] }
+    Label: { type: string, enum: [question, answer, follow_up, other] }
+    Sentence:
+      type: object
+      required: [id, speaker, start, end, text, transcription_confidence]
+      properties:
+        id: { type: string, examples: ['t1.s2'] }
+        speaker: { $ref: '#/components/schemas/Speaker' }
+        start: { type: number }
+        end: { type: number }
+        text: { type: string }
+        transcription_confidence: { type: number }
+        label: { oneOf: [{ $ref: '#/components/schemas/Label' }, { type: 'null' }] }
+        label_confidence: { type: [number, 'null'] }
+        labeller: { type: [string, 'null'] }
+        needs_review: { type: boolean }
+        review_reason: { type: [string, 'null'] }
+    Turn:
+      type: object
+      required: [id, speaker, start, end, sentences]
+      properties:
+        id: { type: string }
+        speaker: { $ref: '#/components/schemas/Speaker' }
+        start: { type: number }
+        end: { type: number }
+        sentences:
+          type: array
+          items: { $ref: '#/components/schemas/Sentence' }
+    ProcessResponse:
+      type: object
+      required: [language, language_probability, labeller, turns]
+      properties:
+        language: { type: string }
+        language_probability: { type: number }
+        labeller: { type: string }
+        turns:
+          type: array
+          items: { $ref: '#/components/schemas/Turn' }
+        threads:
+          type: array
+          items: { $ref: '#/components/schemas/QuestionThread' }
+    AnswerStatus:
+      type: string
+      enum: [answered, unanswered, no_attempt, self_answered]
+      description: no_attempt (the candidate declined) is tracked apart from a wrong answer.
+    Evidence:
+      type: object
+      description: Ids of the answer sentences supporting each rating.
+      required: [relevance, correctness, depth, example_given]
+      properties:
+        relevance: { type: array, items: { type: string } }
+        correctness: { type: array, items: { type: string } }
+        depth: { type: array, items: { type: string } }
+        example_given: { type: array, items: { type: string } }
+    Rating:
+      type: object
+      required: [relevance, correctness, depth, example_given, evidence, score]
+      properties:
+        relevance: { type: string, enum: [off_topic, partly, fully] }
+        correctness: { type: string, enum: [wrong, partly_right, right] }
+        depth: { type: string, enum: [surface, adequate, detailed] }
+        example_given: { type: string, enum: ['yes', 'no'] }
+        evidence: { $ref: '#/components/schemas/Evidence' }
+        score:
+          type: integer
+          minimum: 0
+          maximum: 10
+          description: >
+            Share of expected points covered, scaled to 10. An off-topic answer scores 0 and
+            stating something false costs 2 points. Derived in code, not asked of the model.
+        coverage:
+          type: array
+          description: Per expected point, in rubric order, what the rating rests on.
+          items: { $ref: '#/components/schemas/PointCoverage' }
+    PointCoverage:
+      type: object
+      required: [point, coverage]
+      properties:
+        point: { type: integer, minimum: 1, description: Expected point number, from 1 }
+        coverage: { type: string, enum: [covered, partly, not_covered] }
+        evidence:
+          type: array
+          items: { type: string }
+          description: Ids of the answer sentences that show the point.
+    Rubric:
+      type: object
+      required: [points, source]
+      properties:
+        points:
+          type: array
+          items: { type: string }
+          description: Concept-level expected points the answer was judged against.
+        source:
+          type: string
+          enum: [bank, generated]
+          description: generated means the points were drafted by the model, not the question bank.
+        bank_id: { type: [string, 'null'] }
+    QuestionThread:
+      type: object
+      required: [id, question_id, status, closed]
+      properties:
+        id: { type: string }
+        question_id: { type: string, description: Sentence id of the interviewer's question }
+        topic: { type: [string, 'null'], description: One id from the configured topic list }
+        topic_confidence: { type: [number, 'null'] }
+        answer_ids: { type: array, items: { type: string } }
+        follow_up_ids: { type: array, items: { type: string } }
+        clarification_ids: { type: array, items: { type: string } }
+        self_answer_ids: { type: array, items: { type: string } }
+        status: { $ref: '#/components/schemas/AnswerStatus' }
+        closed: { type: boolean, description: Only closed threads are rated }
+        primed: { type: boolean, description: The question was leading }
+        rubric: { oneOf: [{ $ref: '#/components/schemas/Rubric' }, { type: 'null' }] }
+        rating: { oneOf: [{ $ref: '#/components/schemas/Rating' }, { type: 'null' }] }
+        needs_review: { type: boolean }
+        review_reason: { type: [string, 'null'] }
