@@ -4,6 +4,7 @@ import asyncio
 import secrets
 from dataclasses import dataclass, field
 
+from ai_service.assessment.cache import AssessmentCache
 from ai_service.schemas.transcript import Segment, Sentence, SpeakerChange
 
 MAX_SESSIONS = 20
@@ -18,6 +19,7 @@ class Session:
     # Labelled sentences keyed by (id, text): finished sentences are labelled once,
     # while a sentence that grew or changed in a later chunk is labelled again.
     labelled: dict[tuple[str, str], Sentence] = field(default_factory=dict)
+    assessment: AssessmentCache = field(default_factory=AssessmentCache)
     # One chunk at a time per session, so chunk order is preserved.
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 

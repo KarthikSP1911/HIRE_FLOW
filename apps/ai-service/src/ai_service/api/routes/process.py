@@ -73,13 +73,14 @@ async def add_chunk(
     pipeline: Annotated[ProcessingPipeline, Depends(get_pipeline)],
     store: Annotated[SessionStore, Depends(get_session_store)],
     settings: Annotated[Settings, Depends(get_settings)],
+    final: Annotated[bool, Form()] = False,
 ) -> ProcessResponse:
     try:
         session = store.get(session_id)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="session not found") from exc
     data, suffix, log = await _read_upload(audio, speaker_log, settings)
-    return await pipeline.add_chunk(session, data, suffix, offset, log)
+    return await pipeline.add_chunk(session, data, suffix, offset, log, final)
 
 
 @router.delete("/sessions/{session_id}", status_code=204)

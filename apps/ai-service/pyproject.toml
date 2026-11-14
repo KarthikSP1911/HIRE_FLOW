@@ -19,6 +19,10 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
+markers = ["ollama: needs a running local Ollama server with the rating model pulled"]
+# Real-model tests take minutes on CPU, so they only run on request: pytest -m ollama
+addopts = "-m 'not ollama'"
 
 [tool.mypy]
 strict = true

@@ -1,0 +1,42 @@
+[
+  {
+    "id": "algorithms",
+    "label": "Algorithms",
+    "description": "algorithm design, complexity, searching, sorting, recursion"
+  },
+  {
+    "id": "data-structures",
+    "label": "Data structures",
+    "description": "arrays, lists, trees, graphs, hash tables, stacks and queues"
+  },
+  {
+    "id": "databases",
+    "label": "Databases",
+    "description": "SQL, indexing, transactions, schema design, NoSQL"
+  },
+  {
+    "id": "system-design",
+    "label": "System design",
+    "description": "architecture, scaling, caching, reliability, trade-offs between components"
+  },
+  {
+    "id": "concurrency",
+    "label": "Concurrency",
+    "description": "threads, locks, async code, race conditions, parallelism"
+  },
+  {
+    "id": "networking",
+    "label": "Networking",
+    "description": "HTTP, TCP, DNS, APIs, latency, security in transit"
+  },
+  {
+    "id": "testing",
+    "label": "Testing",
+    "description": "unit, integration and end-to-end tests, test design, debugging"
+  },
+  {
+    "id": "behavioural",
+    "label": "Behavioural",
+    "description": "teamwork, past experience, conflict, motivation, soft skills"
+  }
+]

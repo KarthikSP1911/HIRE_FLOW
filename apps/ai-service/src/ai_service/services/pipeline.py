@@ -14,6 +14,7 @@ from ai_service.schemas.transcript import (
     Turn,
     Word,
 )
+from ai_service.services.assessor import ThreadAssessor
 from ai_service.services.sessions import Session
 from ai_service.services.turns import build_turns
 from ai_service.services.verifier import Verifier
@@ -50,20 +51,31 @@ class ProcessingPipeline:
         labeller: DecisionPort,
         verifier: Verifier,
         context_size: int,
+        assessor: ThreadAssessor | None = None,
     ) -> None:
         self._transcriber = transcriber
         self._labeller = labeller
         self._verifier = verifier
         self._context_size = context_size
+        self._assessor = assessor
 
     async def run(self, audio: bytes, suffix: str, log: list[SpeakerChange]) -> ProcessResponse:
         """One-shot: a whole recording in a single request."""
-        return await self.add_chunk(Session(), audio, suffix, 0.0, log)
+        return await self.add_chunk(Session(), audio, suffix, 0.0, log, final=True)
 
     async def add_chunk(
-        self, session: Session, audio: bytes, suffix: str, offset: float, log: list[SpeakerChange]
+        self,
+        session: Session,
+        audio: bytes,
+        suffix: str,
+        offset: float,
+        log: list[SpeakerChange],
+        final: bool = False,
     ) -> ProcessResponse:
-        """Live: add the next slice of audio and return everything labelled so far."""
+        """Live: add the next slice of audio and return everything labelled so far.
+
+        `final` says no more audio follows, so the last question's answers can be rated.
+        """
         async with session.lock:
             # Whisper is CPU-bound, so keep it off the event loop.
             started = time.perf_counter()
@@ -71,11 +83,17 @@ class ProcessingPipeline:
             transcribed = time.perf_counter()
             self._absorb(session, transcription, offset, log)
             response = await self._label(session)
+            labelled = time.perf_counter()
+            if self._assessor is not None:
+                sentences = [s for turn in response.turns for s in turn.sentences]
+                threads = await self._assessor.assess(session.assessment, sentences, final)
+                response = response.model_copy(update={"threads": threads})
             # Timings only, never content (candidate data is PII).
             logger.info(
-                "chunk timing: transcribe=%.1fs label=%.1fs",
+                "chunk timing: transcribe=%.1fs label=%.1fs assess=%.1fs",
                 transcribed - started,
-                time.perf_counter() - transcribed,
+                labelled - transcribed,
+                time.perf_counter() - labelled,
             )
             return response
 

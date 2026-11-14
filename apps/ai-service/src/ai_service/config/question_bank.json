@@ -1,0 +1,46 @@
+[
+  {
+    "id": "qb-binary-search",
+    "question": "Explain how binary search works and why it is fast.",
+    "topic": "algorithms",
+    "expected_points": [
+      "Works on sorted data by repeatedly checking the middle element",
+      "Each step discards half of the remaining items",
+      "Because the search space halves each time, the work grows slowly with input size"
+    ],
+    "difficulty": "easy"
+  },
+  {
+    "id": "qb-database-index",
+    "question": "What is a database index and what is the trade-off of adding one?",
+    "topic": "databases",
+    "expected_points": [
+      "A separate structure that lets the database find rows without scanning the whole table",
+      "Makes reads on the indexed columns faster",
+      "Costs extra storage and slows down writes because the index must be updated"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "qb-race-condition",
+    "question": "What is a race condition and how can you prevent one?",
+    "topic": "concurrency",
+    "expected_points": [
+      "The result depends on the unpredictable timing of two or more tasks touching shared state",
+      "Prevented by making access to the shared state exclusive or atomic",
+      "Alternatively avoid shared mutable state altogether"
+    ],
+    "difficulty": "medium"
+  },
+  {
+    "id": "qb-conflict",
+    "question": "Tell me about a time you disagreed with a teammate.",
+    "topic": "behavioural",
+    "expected_points": [
+      "Describes a specific real situation, not a general opinion",
+      "Shows how they listened to the other view and worked toward a resolution",
+      "Reflects on the outcome or what they learned"
+    ],
+    "difficulty": "easy"
+  }
+]

@@ -17,3 +17,17 @@ class DecisionPort(Protocol):
     name: str
 
     async def decide(self, sentence: Sentence, context: Sequence[Sentence]) -> RawDecision: ...
+
+
+# A single-choice answer, untrusted: expected keys are choice and confidence.
+RawChoice = Mapping[str, object]
+
+
+class ChoicePort(Protocol):
+    """Ask a decision model any single-choice question (topic, attempt, leading, ...)."""
+
+    name: str
+
+    async def choose(
+        self, state: str, question_name: str, instructions: str, criteria: Mapping[str, str]
+    ) -> RawChoice: ...

@@ -2,6 +2,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ai_service.schemas.assessment import QuestionThread
+
 
 class Speaker(StrEnum):
     INTERVIEWER = "interviewer"
@@ -69,6 +71,7 @@ class ProcessResponse(BaseModel):
     language_probability: float
     labeller: str
     turns: list[Turn]
+    threads: list[QuestionThread] = Field(default_factory=list)
 
 
 class Decision(BaseModel):
