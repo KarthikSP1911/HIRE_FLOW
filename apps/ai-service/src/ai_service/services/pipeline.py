@@ -1,10 +1,10 @@
-"""Audio in, labelled turns out: transcribe -> turns/sentences -> label -> verify."""
+"""Audio in, labelled turns out: transcribe -> turns/sentences -> tag (one batch) -> verify."""
 
 import asyncio
 import logging
 import time
 
-from ai_service.labelling.port import DecisionError, DecisionPort
+from ai_service.labelling.port import RawDecision, SentenceTagger, TaggingError
 from ai_service.schemas.transcript import (
     ProcessResponse,
     Segment,
@@ -21,6 +21,8 @@ from ai_service.services.verifier import Verifier
 from ai_service.stt.transcriber import Transcriber
 
 logger = logging.getLogger(__name__)
+
+MISSING_LABEL = "tagging model returned no label"
 
 
 def _shift(segments: list[Segment], offset: float) -> list[Segment]:
@@ -48,7 +50,7 @@ class ProcessingPipeline:
     def __init__(
         self,
         transcriber: Transcriber,
-        labeller: DecisionPort,
+        labeller: SentenceTagger,
         verifier: Verifier,
         context_size: int,
         assessor: ThreadAssessor | None = None,
@@ -74,7 +76,10 @@ class ProcessingPipeline:
     ) -> ProcessResponse:
         """Live: add the next slice of audio and return everything labelled so far.
 
-        `final` says no more audio follows, so the last question's answers can be rated.
+        `final` says no more audio follows. Until then a reply carries labels and question
+        threads only, so it keeps up with speech on CPU; topics, attempt/leading checks and
+        ratings are model findings the guide shows after the interview, so they run on the
+        final chunk.
         """
         async with session.lock:
             # Whisper is CPU-bound, so keep it off the event loop.
@@ -86,7 +91,11 @@ class ProcessingPipeline:
             labelled = time.perf_counter()
             if self._assessor is not None:
                 sentences = [s for turn in response.turns for s in turn.sentences]
-                threads = await self._assessor.assess(session.assessment, sentences, final)
+                threads = (
+                    await self._assessor.assess(session.assessment, sentences, final=True)
+                    if final
+                    else self._assessor.pair_only(sentences)
+                )
                 response = response.model_copy(update={"threads": threads})
             # Timings only, never content (candidate data is PII).
             logger.info(
@@ -113,29 +122,17 @@ class ProcessingPipeline:
     async def _label(self, session: Session) -> ProcessResponse:
         turns = build_turns(session.segments, session.log)
         sentences = [s for turn in turns for s in turn.sentences]
-        known_ids = {s.id for s in sentences}
         checked: dict[str, Sentence] = {}
-        for index, sentence in enumerate(sentences):
+        targets: list[Sentence] = []
+        for sentence in sentences:
             cached = session.labelled.get((sentence.id, sentence.text))
             if cached is not None:
                 checked[sentence.id] = cached
-                continue
-            context = sentences[max(0, index - self._context_size) : index]
-            try:
-                raw = await self._labeller.decide(sentence, context)
-            except DecisionError as exc:
-                # Keep every sentence visible; flag it (and retry next chunk) instead of failing.
-                checked[sentence.id] = sentence.model_copy(
-                    update={
-                        "labeller": self._labeller.name,
-                        "needs_review": True,
-                        "review_reason": str(exc),
-                    }
-                )
-                continue
-            result = self._verifier.apply(sentence, raw, known_ids, self._labeller.name)
-            session.labelled[(sentence.id, sentence.text)] = result
-            checked[sentence.id] = result
+            else:
+                targets.append(sentence)
+
+        if targets:
+            checked.update(await self._label_batch(session, targets, sentences))
 
         return ProcessResponse(
             language=session.language,
@@ -148,4 +145,42 @@ class ProcessingPipeline:
                 )
                 for turn in turns
             ],
+        )
+
+    async def _label_batch(
+        self,
+        session: Session,
+        targets: list[Sentence],
+        sentences: list[Sentence],
+    ) -> dict[str, Sentence]:
+        """Label all new sentences in one model call. Flagged results are retried next chunk."""
+        if session.conversation is None:
+            session.conversation = self._labeller.start_conversation(self._context_size)
+        try:
+            raw_labels = await session.conversation.label(targets)
+        except TaggingError as exc:
+            # Keep every sentence visible; flag it instead of failing the request.
+            return {s.id: self._flagged(s, str(exc)) for s in targets}
+
+        by_id: dict[str, RawDecision] = {}
+        for item in raw_labels:
+            sentence_id = item.get("sentence_id")
+            if isinstance(sentence_id, str):
+                by_id.setdefault(sentence_id, item)
+
+        known_ids = {s.id for s in sentences}
+        results: dict[str, Sentence] = {}
+        for sentence in targets:
+            raw = by_id.get(sentence.id)
+            if raw is None:
+                results[sentence.id] = self._flagged(sentence, MISSING_LABEL)
+                continue
+            result = self._verifier.apply(sentence, raw, known_ids, self._labeller.name)
+            session.labelled[(sentence.id, sentence.text)] = result
+            results[sentence.id] = result
+        return results
+
+    def _flagged(self, sentence: Sentence, reason: str) -> Sentence:
+        return sentence.model_copy(
+            update={"labeller": self._labeller.name, "needs_review": True, "review_reason": reason}
         )

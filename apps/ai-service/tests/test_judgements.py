@@ -3,7 +3,7 @@ from collections.abc import Mapping
 
 from ai_service.assessment.catalog import Topic
 from ai_service.assessment.judgements import Judge, check_choice
-from ai_service.labelling.port import DecisionError, RawChoice
+from ai_service.labelling.port import RawChoice, TaggingError
 
 TOPICS = (Topic(id="algorithms", label="Algorithms", description="d"),)
 
@@ -18,7 +18,7 @@ class StubPort:
         self, state: str, question_name: str, instructions: str, criteria: Mapping[str, str]
     ) -> RawChoice:
         if self._raw is None:
-            raise DecisionError("down")
+            raise TaggingError("down")
         return self._raw
 
 

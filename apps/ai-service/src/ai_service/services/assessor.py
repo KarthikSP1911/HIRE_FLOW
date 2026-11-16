@@ -26,6 +26,7 @@ from ai_service.schemas.assessment import (
 from ai_service.schemas.transcript import Sentence
 
 JOIN = "; "
+TOPIC = "topic"
 
 
 def _flag(thread: QuestionThread, reason: str) -> None:
@@ -33,6 +34,14 @@ def _flag(thread: QuestionThread, reason: str) -> None:
     thread.review_reason = (
         f"{thread.review_reason}{JOIN}{reason}" if thread.review_reason else reason
     )
+
+
+def _apply_topic(thread: QuestionThread, judgement: Judgement) -> None:
+    if judgement.choice not in (None, NO_TOPIC):
+        thread.topic = judgement.choice
+    thread.topic_confidence = judgement.confidence
+    if judgement.problem:
+        _flag(thread, f"topic: {judgement.problem}")
 
 
 class ThreadAssessor:
@@ -54,6 +63,16 @@ class ThreadAssessor:
             await self._assess_thread(cache, thread, by_id)
             for thread in pair_threads(sentences, final)
         ]
+
+    @staticmethod
+    def pair_only(sentences: Sequence[Sentence]) -> list[QuestionThread]:
+        """Question threads without any model call, for replies while recording.
+
+        Topics, attempt/leading checks and ratings take seconds to minutes per question on CPU
+        and would hold up live labelling; the guide only shows them after the interviewer has
+        submitted their own score, so `assess` runs them once the recording ends.
+        """
+        return pair_threads(sentences, final=False)
 
     async def _assess_thread(
         self, cache: AssessmentCache, thread: QuestionThread, by_id: dict[str, Sentence]
@@ -107,13 +126,9 @@ class ThreadAssessor:
     ) -> bool:
         """Returns True if the topic model was unreachable and should be retried."""
         judgement = await self._judged(
-            cache, "topic", question, question.text, lambda: self._judge.topic(question.text)
+            cache, TOPIC, question, question.text, lambda: self._judge.topic(question.text)
         )
-        if judgement.choice not in (None, NO_TOPIC):
-            thread.topic = judgement.choice
-        thread.topic_confidence = judgement.confidence
-        if judgement.problem:
-            _flag(thread, f"topic: {judgement.problem}")
+        _apply_topic(thread, judgement)
         return judgement.unavailable
 
     async def _rate(

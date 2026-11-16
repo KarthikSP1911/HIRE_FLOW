@@ -20,9 +20,10 @@ from qa_cases import (
 )
 
 from ai_service.assessment.cache import AssessmentCache
-from ai_service.assessment.judgements import Judge
+from ai_service.assessment.judgements import NO_ATTEMPT, Judge
 from ai_service.assessment.matching import TokenSetMatcher
 from ai_service.core.config import Settings
+from ai_service.labelling.ollama import OllamaTagger
 from ai_service.rating.consensus import PromptMode
 from ai_service.rating.ollama import OllamaRater
 from ai_service.schemas.assessment import AnswerStatus, Correctness
@@ -82,6 +83,34 @@ def test_the_model_tells_the_two_answers_apart() -> None:
     assert plain is not None
     assert jargon is not None
     assert RANK[plain.correctness] > RANK[jargon.correctness]
+
+
+def tag(work):  # type: ignore[no-untyped-def]
+    async def go():  # type: ignore[no-untyped-def]
+        async with httpx.AsyncClient(timeout=SETTINGS.ollama_timeout_seconds) as client:
+            tagger = OllamaTagger(client, SETTINGS.ollama_url, SETTINGS.effective_tagging_model)
+            return await work(tagger)
+
+    return asyncio.run(go())
+
+
+def test_the_tagger_labels_a_question_and_its_answer() -> None:
+    sentences = build_sentences(PLAIN_CORRECT)
+    expected = {s.id: s.label for s in sentences}
+    unlabelled = [s.model_copy(update={"label": None}) for s in sentences]
+
+    raw = tag(lambda tagger: tagger.start_conversation(4).label(unlabelled))
+
+    assert {item["sentence_id"]: item["label"] for item in raw} == expected
+
+
+def test_the_tagger_sees_i_dont_know_as_no_attempt() -> None:
+    question = DONT_KNOW.question
+    answer = " ".join(DONT_KNOW.answer)
+
+    judgement = tag(lambda tagger: Judge(tagger, TOPICS, 0.6, 0.6).attempt(question, answer))
+
+    assert judgement.choice == NO_ATTEMPT
 
 
 def test_i_dont_know_is_no_attempt() -> None:

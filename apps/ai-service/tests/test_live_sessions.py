@@ -34,9 +34,12 @@ class CountingLabeller:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def decide(self, sentence: Sentence, context: object) -> dict[str, object]:
-        self.calls.append(sentence.id)
-        return {"sentence_id": sentence.id, "label": "other", "confidence": 0.9}
+    def start_conversation(self, context_size: int):  # type: ignore[no-untyped-def]
+        return self
+
+    async def label(self, targets: list[Sentence]) -> list[dict[str, object]]:
+        self.calls.extend(s.id for s in targets)
+        return [{"sentence_id": s.id, "label": "other", "confidence": 0.9} for s in targets]
 
 
 @pytest.fixture

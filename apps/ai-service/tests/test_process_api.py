@@ -24,8 +24,11 @@ class FakeTranscriber:
 class FakeLabeller:
     name = "fake"
 
-    async def decide(self, sentence, context):  # type: ignore[no-untyped-def]
-        return {"sentence_id": sentence.id, "label": "other", "confidence": 0.9}
+    def start_conversation(self, context_size: int):  # type: ignore[no-untyped-def]
+        return self
+
+    async def label(self, targets):  # type: ignore[no-untyped-def]
+        return [{"sentence_id": s.id, "label": "other", "confidence": 0.9} for s in targets]
 
 
 @pytest.fixture

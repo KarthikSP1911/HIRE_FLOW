@@ -1,10 +1,10 @@
 """Rate answers with a local model served by Ollama, constrained to a fixed JSON schema."""
 
-import json
 from typing import Any
 
 import httpx
 
+from ai_service.clients.ollama import OllamaChat, OllamaError
 from ai_service.rating.port import PromptStyle, RatingError, RatingRequest, RawRating
 from ai_service.rating.prompts import DRAFT_POINTS_PROMPT, system_prompt, user_prompt
 from ai_service.schemas.assessment import Coverage, Relevance, YesNo
@@ -67,9 +67,7 @@ POINTS_SCHEMA: dict[str, Any] = {
 class OllamaRater:
     def __init__(self, client: httpx.AsyncClient, url: str, model: str) -> None:
         self.name = f"ollama:{model}"
-        self._client = client
-        self._url = url.rstrip("/") + "/api/chat"
-        self._model = model
+        self._ollama = OllamaChat(client, url, model)
 
     async def draft_points(self, question: str) -> list[str]:
         body = await self._chat(
@@ -90,21 +88,7 @@ class OllamaRater:
         return await self._chat(messages, RATING_SCHEMA)
 
     async def _chat(self, messages: list[dict[str, str]], schema: dict[str, Any]) -> dict[str, Any]:
-        payload = {
-            "model": self._model,
-            "messages": messages,
-            "stream": False,
-            "think": False,
-            "format": schema,
-            "options": {"temperature": 0},
-        }
         try:
-            response = await self._client.post(self._url, json=payload)
-            response.raise_for_status()
-            content = response.json()["message"]["content"]
-            parsed = json.loads(content)
-        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            return await self._ollama.chat(messages, schema)
+        except OllamaError as exc:
             raise RatingError(f"{self.name} rating server unavailable or unusable") from exc
-        if not isinstance(parsed, dict):
-            raise RatingError(f"{self.name} returned a non-object response")
-        return parsed

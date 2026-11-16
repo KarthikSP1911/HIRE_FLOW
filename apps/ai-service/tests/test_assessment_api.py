@@ -42,9 +42,18 @@ class ScriptedTranscriber:
 class ScriptedLabeller:
     name = "fake"
 
-    async def decide(self, sentence: Sentence, context: object) -> dict[str, object]:
-        label = "question" if sentence.text == QUESTION else "answer"
-        return {"sentence_id": sentence.id, "label": label, "confidence": 0.9}
+    def start_conversation(self, context_size: int):  # type: ignore[no-untyped-def]
+        return self
+
+    async def label(self, targets: list[Sentence]) -> list[dict[str, object]]:
+        return [
+            {
+                "sentence_id": s.id,
+                "label": "question" if s.text == QUESTION else "answer",
+                "confidence": 0.9,
+            }
+            for s in targets
+        ]
 
 
 @pytest.fixture

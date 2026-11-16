@@ -1,4 +1,4 @@
-"""Single-choice judgements through the decision port: topic, attempt and leading question.
+"""Single-choice judgements through the choice port: topic, attempt and leading question.
 
 Every answer is checked in plain code: the choice must be one of the offered values and the
 confidence a number in [0, 1]. Anything else is flagged, never silently accepted.
@@ -10,7 +10,7 @@ from typing import Final
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ai_service.assessment.catalog import Topic
-from ai_service.labelling.port import ChoicePort, DecisionError, RawChoice
+from ai_service.labelling.port import ChoicePort, RawChoice, TaggingError
 
 NO_TOPIC: Final = "none"
 ATTEMPT: Final = "attempt"
@@ -101,6 +101,6 @@ class Judge:
     ) -> Judgement:
         try:
             raw = await self._port.choose(state, name, instructions, criteria)
-        except DecisionError as exc:
+        except TaggingError as exc:
             return Judgement(None, None, f"{name} check unavailable ({exc})", unavailable=True)
         return check_choice(raw, set(criteria), threshold)
