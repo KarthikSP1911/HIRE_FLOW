@@ -472,9 +472,7 @@
       <section class="card" id="threadsCard">
         <div class="toolbar">
           <b>Questions &amp; answers</b>
-          <span class="meta"
-            >Answers are rated when the next question arrives or recording stops.</span
-          >
+          <span class="meta">Topics and ratings are added when you stop recording.</span>
         </div>
         <div id="threads">
           <div class="empty">Questions, topics, answers and ratings will appear here.</div>
@@ -647,7 +645,7 @@
           statusEl.textContent = `Results appear live as you speak.${work}`;
         } else {
           setPill('working', 'Finishing');
-          statusEl.textContent = `Finishing up.${work}`;
+          statusEl.textContent = `Finishing up: rating the answers (about a minute per answer on CPU).${work}`;
         }
       }
 
@@ -792,14 +790,12 @@
       });
 
       // Keyboard shortcuts, ignored while typing or when a control already uses the key.
+      // Digits must still work right after clicking the mic button, which keeps focus.
       document.addEventListener('keydown', (event) => {
-        if (
-          event.target.closest('input, textarea, button, summary') ||
-          event.metaKey ||
-          event.ctrlKey
-        )
-          return;
+        const typing = event.target.closest('input:not([type=radio]), textarea');
+        if (typing || event.metaKey || event.ctrlKey) return;
         if (event.code === 'Space') {
+          if (event.target.closest('input, button, summary')) return;
           event.preventDefault();
           mic.click();
         } else if (event.key === '1' || event.key === '2') {
@@ -899,10 +895,8 @@
 
         if (t.status === 'no_attempt')
           card.append(el('div', 'meta', 'The candidate did not attempt an answer: not rated.'));
-        else if (!t.closed && t.status === 'answered')
-          card.append(
-            el('div', 'meta', 'Still open: rated when the next question arrives or you stop.'),
-          );
+        else if (t.status === 'answered' && !t.rating && !t.needs_review)
+          card.append(el('div', 'meta', 'Rated when you stop recording.'));
         if (t.rating) {
           const score = el('div', 'score', String(t.rating.score));
           score.append(el('span', 'score-max', ' / 10'));
