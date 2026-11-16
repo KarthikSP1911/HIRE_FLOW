@@ -18,38 +18,48 @@ while you keep talking: speaker turns, sentences, a label per sentence (`questio
 `follow_up`, `other`) with a confidence, and a "needs review" badge where the checker is unsure
 appear live. Stop finishes the last slice and shows "Complete". Everything runs locally.
 
-Flow: faster-whisper (`small`, multilingual) → turns/sentences → decision model → verifier.
+Flow: faster-whisper (`small`, multilingual) → turns/sentences → LLM tagger (Ollama) → verifier.
+
+Built to keep up with speech on a laptop CPU:
+
+- **One call per slice.** All new sentences of a slice are labelled together, numbered `1`, `2`, …
+  and mapped back to sentence ids in code. Output is just `{"1": "question", "2": "answer"}`: the
+  JSON schema forces exactly those keys and the four labels, and every generated token costs about
+  0.1 s on CPU.
+- **One conversation per recording.** Each slice is a new message after the model's earlier
+  replies, so Ollama only reads the new sentences. Qwen3.5 can reuse its cache only when a prompt
+  extends the previous one exactly; re-sending a fresh prompt each time cost 6-10 s just to read it.
+  After about 2,000 tokens the conversation restarts with the last few sentences restated.
+- **Confidence from token probabilities**, not a number the model writes: the probability the
+  model gave its label among the allowed ones (see `labelling/confidence.py`). It costs no
+  generated tokens and needs Ollama 0.12 or newer.
+- **Only labels while recording.** Topics, attempt/leading checks and ratings run after Stop (the
+  final slice): your guide shows model findings only after the interviewer submits their score,
+  and on CPU they take seconds to minutes per question.
+
+The verifier flags a missing label, an unknown id, a speaker/label mismatch or low confidence.
+Flagged sentences are sent again with the next slice.
 
 ### 1. Install
 
 ```bash
 uv sync                                        # app + faster-whisper
-uv tool install strands-decider                # decision model server (kept out of the app env)
 ```
 
-The Whisper `small` weights download automatically on the first recording, and the decision
-model on its first start. `av` is pinned below 17 because newer PyAV breaks faster-whisper.
+Then install and start Ollama (see [Ollama](#ollama) below). It serves both tagging and rating.
+The Whisper `small` weights download automatically on the first recording. `av` is pinned below
+17 because newer PyAV breaks faster-whisper.
 
-### 2. Start the decision model server
-
-Default (Strands Decider 2B). Port 8000 is the app, so use 8100:
-
-```bash
-strands-decider serve StrandsAgents/strands-decider-2B-qwen3.5-v1-2610 --port 8100
-```
-
-Alternative (Laya): install Unsloth, then Settings → API → Decision API → turn on
-"Serve requests" and download the default Laya model. It listens on `localhost:8888`.
-Select it with `LABELLER=laya` (add `LAYA_API_KEY` unless keyless access is on).
-
-### 3. Run the app
+### 2. Run the app
 
 ```bash
 uv run fastapi dev src/ai_service/main.py      # open http://localhost:8000/
 ```
 
-Settings are env vars, see `.env.example` (labeller, URLs, Whisper model/device/beam size,
-review thresholds). Checks: `uv run pytest`, `uv run mypy src`,
+Settings are env vars, see `.env.example` (Ollama URL and models, Whisper model/device/beam size,
+review thresholds). `TAGGING_MODEL` picks the tagging model and defaults to `OLLAMA_MODEL`
+(`qwen3.5:2b` was faster but mislabelled 2 of 11 sentences with high confidence, so 4B is kept).
+Checks: `uv run pytest`, `uv run mypy src`,
 `uv run ruff check . && uv run ruff format --check .`.
 
 ### Endpoints
@@ -74,9 +84,9 @@ After sentences are labelled, the response also carries `threads`: one per inter
    thread (never rated); an interviewer answering their own question is `self_answered`; a
    question with no answer is `unanswered`.
 2. **Topic**: one topic from `src/ai_service/config/topics.json` (8 samples) or none, chosen
-   through the same decision server as the labels, with a confidence. Low confidence is flagged.
-   Answers and follow-ups belong to their thread, so they share its topic.
-3. **Attempt and leading checks** (decision server). "I don't know" is `no_attempt`: tracked
+   by the same LLM tagger as the labels, with a confidence from token probabilities. Low
+   confidence is flagged. Answers and follow-ups belong to their thread, so they share its topic.
+3. **Attempt and leading checks** (LLM tagger). "I don't know" is `no_attempt`: tracked
    apart from a wrong answer and never rated. A leading question marks the thread `primed`.
 4. **Expected points**: the question is matched by token similarity to
    `src/ai_service/config/question_bank.json` (question, topic, 2-4 concept points, difficulty).
@@ -97,11 +107,11 @@ After sentences are labelled, the response also carries `threads`: one per inter
 6. **Verifier** (plain code): unknown sentence ids, ids outside the answer, values outside the
    allowed ones, a rating with no evidence, a topic outside the list, low confidence and prompt
    disagreement are rejected or flagged. If Ollama is unreachable the thread stays visible,
-   flagged "rating unavailable", and is retried on the next slice.
+   flagged "rating unavailable".
 
-A thread is rated once it is closed: when the next question starts, or when the client sends
-`final=true` with the last slice (the page does this on stop; `POST /process` is always final).
-Results are cached per session, so a finished answer is not rated again.
+While recording, replies carry labels and threads (steps 1 only). Steps 2-6 run when the client
+sends `final=true` with the last slice (the page does this on Stop; `POST /process` is always
+final), so the final reply waits for them: about 1-1.5 minutes per answered question on CPU.
 
 ### Ollama
 
@@ -116,36 +126,40 @@ decode two requests together in about the time of one (measured here: a full two
 fell from about 85 s to 39 s on CPU). Add `OLLAMA_KEEP_ALIVE=5m` to avoid a reload (4-16 s) when
 answers are rated minutes apart, at the cost of keeping the model in memory.
 
-Settings (see `.env.example`): `OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_TIMEOUT_SECONDS`,
+Settings (see `.env.example`): `OLLAMA_URL`, `OLLAMA_MODEL`, `TAGGING_MODEL`, `OLLAMA_TIMEOUT_SECONDS`,
 `RATING_PROMPT_MODE`, `TOPICS_PATH`, `QUESTION_BANK_PATH`, `TOPIC_CONFIDENCE_THRESHOLD`,
 `BANK_MATCH_THRESHOLD`. Everything runs locally; no cloud calls.
 
 `uv run pytest` uses fakes only. `uv run pytest -m ollama` runs the three scripted cases (a
 correct plain-language answer, a confident jargon-heavy shallow answer, "I don't know") against
-the real model, and skips if Ollama is not running.
+the real model, plus a tagging smoke test (labels and the attempt check), and skips if Ollama is
+not running.
 
 ### Verified
 
-- The Strands Decider server was started and called with the adapter's `choice` request; the
-  response shape the adapter parses (`answers.<name>.choice` and `probabilities`) is the real one.
+- Live speed with `qwen3.5:4b` on Ollama 0.40 (CPU only, i5-1235U): a scripted 11-sentence
+  interview sent two sentences per slice was labelled in **5.0 s per slice on average (max
+  6.5 s)**, under the 8 s slice length. Before these changes it was about 21 s per slice, with
+  40-80 s stalls whenever a question closed.
+- Accuracy on that script: 10/11 labels right, the right topic for each thread, the leading
+  question marked `primed`, "I don't know" as `no_attempt`. `uv run pytest -m ollama` passes.
 - Whisper `small` transcribed a real English speech clip end to end through the live endpoints.
 - The page was used in Chrome on this machine.
 
 ### Not verified / known limits
 
-- Laya was never run (it needs the Unsloth app). Its adapter and tests use an assumed response;
-  its Hugging Face id was not confirmed.
-- Speed on CPU only (no NVIDIA GPU here): about 4-6 s to transcribe a 5 s slice and about 3 s per
-  new sentence to label, so results trail speech by several seconds. GPU speed is untested.
+- In conversation mode the 4B model labelled the follow-up "What happens when two keys land in
+  the same bucket?" as a new `question` (confidence 0.91-1.00, so it is not flagged); it then
+  gets a thread of its own. Rewording the label definitions did not fix it.
+- Speed on CPU only (no NVIDIA GPU here): about 4-6 s to transcribe a 5 s slice, on top of the
+  ~5 s labelling, so a real slice is close to its 8 s length. Whisper and labelling were not timed
+  together on real speech. GPU speed is untested.
 - Hindi and Kannada transcription from `small` is poor (garbled words); the verifier flags
   low-confidence and garbled text, but accuracy needs a larger model, untested here. Labelling
   quality on those languages was not checked.
-- Ollama is not installed on this machine, so nothing in the rating path was run against a real
-  model: request shape, schema and parsing are tested with a mock server, and the three scripted
-  cases are tested with fake raters. Real rating quality, whether a 4B model follows the schema and
-  judges jargon fairly, and CPU speed (expect tens of seconds per answer) are unknown.
-- Topic, attempt and leading checks need the decision server, and were only tested with fakes.
-  The question types they use were not tried against Strands or Laya.
+- Tagging and rating were checked on scripted text only, not on real speech through the page.
+  Token-probability confidence varies more than the old self-reported number did, but it is not
+  calibrated against labelled data (the guide's ECE target is unmeasured).
 - Question-bank matching is lexical (word overlap), so a paraphrase with different words will not
   match and falls back to a generated rubric. Hindi/Kannada topics and ratings were not checked.
 - If the last audio slice is empty when you stop, the final question is not closed, so its
